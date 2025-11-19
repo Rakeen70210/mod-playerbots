@@ -2229,7 +2229,9 @@ bool PlayerbotAI::IsHealAssistantOfIndex(Player* player, int index)
     if (!group)
         return false;
 
+    Group::MemberSlotList const& slots = group->GetMemberSlots();
     int counter = 0;
+
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();
@@ -2264,7 +2266,9 @@ bool PlayerbotAI::IsRangedDpsAssistantOfIndex(Player* player, int index)
     if (!group)
         return false;
 
+    Group::MemberSlotList const& slots = group->GetMemberSlots();
     int counter = 0;
+
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();
@@ -2299,7 +2303,9 @@ bool PlayerbotAI::IsAssistTankOfIndex(Player* player, int index)
     if (!group)
         return false;
 
+    Group::MemberSlotList const& slots = group->GetMemberSlots();
     int counter = 0;
+
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();
