@@ -28,7 +28,6 @@ jobs:
           path: 'ac'
       - name: Checkout Playerbot Module
         uses: actions/checkout@v3
-        
         with:
           repository: 'mod-playerbots/mod-playerbots'
           #path: 'modules/mod-playerbots'
