@@ -1,0 +1,64 @@
+name: Keep fork in sync
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # daily at 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/mod-playerbots/mod-playerbots.git || true
+
+      - name: Fetch upstream
+        run: git fetch upstream --no-tags
+
+      - name: Try fast-forward or create PR
+        id: try-merge
+        run: |
+          set -e
+
+          if git rev-parse --verify master >/dev/null 2>&1; then
+            git checkout master
+          else
+            git checkout -b master origin/master
+          fi
+
+          if git merge --ff-only upstream/master; then
+            git push origin master
+            echo "merged=true" >> $GITHUB_OUTPUT
+          else
+            branch="upstream-sync-$(date -u +%Y%m%d%H%M%S)"
+            git checkout -b "$branch" upstream/master
+            git push -u origin "$branch"
+            echo "merged=false" >> $GITHUB_OUTPUT
+            echo "branch=$branch" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Create PR if needed
+        if: steps.try-merge.outputs.merged == 'false'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: "Sync from upstream/master"
+          body: "Automatic sync: update fork from upstream/master"
+          base: master
+          head: ${{ steps.try-merge.outputs.branch }}
