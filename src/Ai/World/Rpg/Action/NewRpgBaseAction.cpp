@@ -29,6 +29,7 @@
 #include "StatsWeightCalculator.h"
 #include "Timer.h"
 #include "TravelMgr.h"
+#include "VectorMemoryMgr.h"
 
 bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
 {
@@ -58,6 +59,7 @@ bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
     else if (++botAI->rpgInfo.stuckAttempts >= 10 && GetMSTimeDiffToNow(botAI->rpgInfo.stuckTs) >= stuckTime)
     {
         // Unfortunately we've been stuck here for over 5 mins, fallback to teleporting directly to the destination
+        WorldPosition stuckPos(bot);
         botAI->rpgInfo.stuckTs = getMSTime();
         botAI->rpgInfo.stuckAttempts = 0;
         const AreaTableEntry* entry = sAreaTableStore.LookupEntry(bot->GetZoneId());
@@ -68,6 +70,7 @@ bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
             bot->GetName(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), bot->GetMapId(),
             dest.GetPositionX(), dest.GetPositionY(), dest.GetPositionZ(), dest.getMapId(), bot->GetZoneId(),
             zone_name);
+        sVectorMemoryMgr.RecordRouteTeleportFallback(bot, stuckPos, dest, bot->GetZoneId(), 10);
         bot->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TELEPORTED | AURA_INTERRUPT_FLAG_CHANGE_MAP);
         return bot->TeleportTo(dest);
     }
@@ -83,6 +86,8 @@ bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
     const float x = bot->GetPositionX();
     const float y = bot->GetPositionY();
     const float z = bot->GetPositionZ();
+    uint32 botGuidLow = bot->GetGUID().GetCounter();
+    uint32 mapId = bot->GetMapId();
     float rx, ry, rz;
     bool found = false;
     int attempt = 3;
@@ -95,6 +100,12 @@ bool NewRpgBaseAction::MoveFarTo(WorldPosition dest)
         float dx = x + cos(angle) * dis;
         float dy = y + sin(angle) * dis;
         float dz = z + 0.5f;
+        WorldPosition candidate(mapId, dx, dy, dz);
+        GridCoord grid = candidate.getGridCoord();
+        if (sVectorMemoryMgr.IsGridAvoided(botGuidLow, mapId, static_cast<uint8>(grid.x_coord),
+                                           static_cast<uint8>(grid.y_coord)))
+            continue;
+
         PathGenerator path(bot);
         path.CalculatePath(dx, dy, dz);
         PathType type = path.GetPathType();
@@ -225,6 +236,31 @@ bool NewRpgBaseAction::InteractWithNpcOrGameObjectForQuest(ObjectGuid guid)
     if (menu.Empty())
         return true;
 
+    sVectorMemoryMgr.EnsureQuestAvoidData(bot, bot->GetZoneId(), bot->GetLevel());
+
+    bool hasNonAvoidedQuest = false;
+    for (uint8 idx = 0; idx < menu.GetMenuItemCount(); idx++)
+    {
+        const QuestMenuItem& item = menu.GetItem(idx);
+        const Quest* quest = sObjectMgr->GetQuestTemplate(item.QuestId);
+        if (!quest)
+            continue;
+
+        const QuestStatus& status = bot->GetQuestStatus(item.QuestId);
+        if (status != QUEST_STATUS_NONE)
+            continue;
+
+        if (!bot->CanTakeQuest(quest, false) || !bot->CanAddQuest(quest, false) || !IsQuestWorthDoing(quest) ||
+            !IsQuestCapableDoing(quest))
+            continue;
+
+        if (!sVectorMemoryMgr.ShouldAvoidQuest(bot->GetGUID().GetCounter(), bot->GetZoneId(), quest->GetQuestId()))
+        {
+            hasNonAvoidedQuest = true;
+            break;
+        }
+    }
+
     for (uint8 idx = 0; idx < menu.GetMenuItemCount(); idx++)
     {
         const QuestMenuItem& item = menu.GetItem(idx);
@@ -236,21 +272,34 @@ bool NewRpgBaseAction::InteractWithNpcOrGameObjectForQuest(ObjectGuid guid)
         if (status == QUEST_STATUS_NONE && bot->CanTakeQuest(quest, false) && bot->CanAddQuest(quest, false) &&
             IsQuestWorthDoing(quest) && IsQuestCapableDoing(quest))
         {
-            AcceptQuest(quest, guid);
-            if (botAI->GetMaster())
-                botAI->TellMasterNoFacing("Quest accepted " + ChatHelper::FormatQuest(quest));
-            BroadcastHelper::BroadcastQuestAccepted(botAI, bot, quest);
-            botAI->rpgStatistic.questAccepted++;
-            LOG_DEBUG("playerbots", "[New RPG] {} accept quest {}", bot->GetName(), quest->GetQuestId());
+            bool avoidQuest =
+                sVectorMemoryMgr.ShouldAvoidQuest(bot->GetGUID().GetCounter(), bot->GetZoneId(), quest->GetQuestId());
+            if (avoidQuest && hasNonAvoidedQuest)
+                continue;
+
+            if (AcceptQuest(quest, guid))
+            {
+                if (botAI->GetMaster())
+                    botAI->TellMasterNoFacing("Quest accepted " + ChatHelper::FormatQuest(quest));
+                BroadcastHelper::BroadcastQuestAccepted(botAI, bot, quest);
+                botAI->rpgStatistic.questAccepted++;
+                sVectorMemoryMgr.RecordQuestEvent(bot, quest->GetQuestId(), bot->GetZoneId(), bot->GetLevel(),
+                                                  "accepted");
+                LOG_DEBUG("playerbots", "[New RPG] {} accept quest {}", bot->GetName(), quest->GetQuestId());
+            }
         }
         if (status == QUEST_STATUS_COMPLETE && bot->CanRewardQuest(quest, 0, false))
         {
-            TurnInQuest(quest, guid);
-            if (botAI->GetMaster())
-                botAI->TellMasterNoFacing("Quest rewarded " + ChatHelper::FormatQuest(quest));
-            BroadcastHelper::BroadcastQuestTurnedIn(botAI, bot, quest);
-            botAI->rpgStatistic.questRewarded++;
-            LOG_DEBUG("playerbots", "[New RPG] {} turned in quest {}", bot->GetName(), quest->GetQuestId());
+            if (TurnInQuest(quest, guid))
+            {
+                if (botAI->GetMaster())
+                    botAI->TellMasterNoFacing("Quest rewarded " + ChatHelper::FormatQuest(quest));
+                BroadcastHelper::BroadcastQuestTurnedIn(botAI, bot, quest);
+                botAI->rpgStatistic.questRewarded++;
+                sVectorMemoryMgr.RecordQuestEvent(bot, quest->GetQuestId(), bot->GetZoneId(), bot->GetLevel(),
+                                                  "turned_in");
+                LOG_DEBUG("playerbots", "[New RPG] {} turned in quest {}", bot->GetName(), quest->GetQuestId());
+            }
         }
     }
     return true;
@@ -510,6 +559,8 @@ bool NewRpgBaseAction::IsQuestCapableDoing(Quest const* quest)
 bool NewRpgBaseAction::OrganizeQuestLog()
 {
     int32 freeSlotNum = 0;
+    uint32 zoneId = bot->GetZoneId();
+    uint8 level = bot->GetLevel();
 
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
     {
@@ -522,6 +573,8 @@ bool NewRpgBaseAction::OrganizeQuestLog()
     if (freeSlotNum >= 2)
         return false;
 
+    sVectorMemoryMgr.EnsureQuestAvoidData(bot, zoneId, level);
+
     int32 dropped = 0;
     // remove quests that not worth doing or not capable of doing
     for (uint16 i = 0; i < MAX_QUEST_LOG_SIZE; ++i)
@@ -531,8 +584,10 @@ bool NewRpgBaseAction::OrganizeQuestLog()
             continue;
 
         const Quest* quest = sObjectMgr->GetQuestTemplate(questId);
-        if (!IsQuestWorthDoing(quest) || !IsQuestCapableDoing(quest) ||
-            bot->GetQuestStatus(questId) == QUEST_STATUS_FAILED)
+        bool statusFailed = bot->GetQuestStatus(questId) == QUEST_STATUS_FAILED;
+        bool notWorthDoing = !IsQuestWorthDoing(quest);
+        bool notCapableDoing = !IsQuestCapableDoing(quest);
+        if (notWorthDoing || notCapableDoing || statusFailed)
         {
             LOG_DEBUG("playerbots", "[New RPG] {} drop quest {}", bot->GetName(), questId);
             WorldPacket packet(CMSG_QUESTLOG_REMOVE_QUEST);
@@ -541,6 +596,14 @@ bool NewRpgBaseAction::OrganizeQuestLog()
             if (botAI->GetMaster())
                 botAI->TellMasterNoFacing("Quest dropped " + ChatHelper::FormatQuest(quest));
             botAI->rpgStatistic.questDropped++;
+            std::string dropReason = "unknown";
+            if (statusFailed)
+                dropReason = "failed";
+            else if (notWorthDoing)
+                dropReason = "not_worth";
+            else if (notCapableDoing)
+                dropReason = "not_capable";
+            sVectorMemoryMgr.RecordQuestEvent(bot, questId, zoneId, level, "dropped", dropReason);
             dropped++;
         }
     }
@@ -566,6 +629,7 @@ bool NewRpgBaseAction::OrganizeQuestLog()
             if (botAI->GetMaster())
                 botAI->TellMasterNoFacing("Quest dropped " + ChatHelper::FormatQuest(quest));
             botAI->rpgStatistic.questDropped++;
+            sVectorMemoryMgr.RecordQuestEvent(bot, questId, zoneId, level, "dropped", "wrong_zone");
             dropped++;
         }
     }
@@ -588,6 +652,7 @@ bool NewRpgBaseAction::OrganizeQuestLog()
         if (botAI->GetMaster())
             botAI->TellMasterNoFacing("Quest dropped " + ChatHelper::FormatQuest(quest));
         botAI->rpgStatistic.questDropped++;
+        sVectorMemoryMgr.RecordQuestEvent(bot, questId, zoneId, level, "dropped", "unknown");
     }
 
     return true;

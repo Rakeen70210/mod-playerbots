@@ -322,6 +322,14 @@ public:
 
     uint32 commandServerPort;
     bool perfMonEnabled;
+    bool vectorMemoryEnabled;
+    std::string vectorMemoryHost;
+    uint32 vectorMemoryPort;
+    uint32 vectorMemoryTimeoutMs;
+    uint32 vectorMemoryRouteQueryCooldownMs;
+    uint32 vectorMemoryQuestQueryCooldownMs;
+    uint32 vectorMemoryMaxAvoidGrids;
+    bool vectorMemoryQuestAvoidEnabled;
     bool summonWhenGroup;
     bool randomBotShowHelmet;
     bool randomBotShowCloak;

@@ -14,6 +14,7 @@
 #include "MapMgr.h"
 #include "PathGenerator.h"
 #include "Playerbots.h"
+#include "VectorMemoryMgr.h"
 #include "TransportMgr.h"
 #include "VMapFactory.h"
 #include "VMapMgr2.h"
@@ -1428,6 +1429,11 @@ void TravelTarget::setTarget(TravelDestination* tDestination1, WorldPosition* wP
 {
     releaseVisitors();
 
+    WorldPosition startPos(bot);
+    WorldPosition endPos;
+    if (wPosition1)
+        endPos = *wPosition1;
+
     wPosition = wPosition1;
     tDestination = tDestination1;
     groupCopy = groupCopy1;
@@ -1435,6 +1441,9 @@ void TravelTarget::setTarget(TravelDestination* tDestination1, WorldPosition* wP
     radius = 0;
 
     addVisitors();
+
+    if (bot && wPosition && tDestination && tDestination != TravelMgr::instance().nullTravelDestination)
+        sVectorMemoryMgr.NotifyTravelTargetSet(bot, startPos, endPos, bot->GetZoneId());
 
     setStatus(TRAVEL_STATUS_TRAVEL);
 }

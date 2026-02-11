@@ -405,6 +405,16 @@ bool PlayerbotAIConfig::Initialize()
 
     commandServerPort = sConfigMgr->GetOption<int32>("AiPlayerbot.CommandServerPort", 8888);
     perfMonEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.PerfMonEnabled", false);
+    vectorMemoryEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.VectorMemoryEnabled", false);
+    vectorMemoryHost = sConfigMgr->GetOption<std::string>("AiPlayerbot.VectorMemoryHost", "127.0.0.1");
+    vectorMemoryPort = sConfigMgr->GetOption<int32>("AiPlayerbot.VectorMemoryPort", 7788);
+    vectorMemoryTimeoutMs = sConfigMgr->GetOption<int32>("AiPlayerbot.VectorMemoryTimeoutMs", 200);
+    vectorMemoryRouteQueryCooldownMs =
+        sConfigMgr->GetOption<int32>("AiPlayerbot.VectorMemoryRouteQueryCooldownMs", 60000);
+    vectorMemoryQuestQueryCooldownMs =
+        sConfigMgr->GetOption<int32>("AiPlayerbot.VectorMemoryQuestQueryCooldownMs", 600000);
+    vectorMemoryMaxAvoidGrids = sConfigMgr->GetOption<int32>("AiPlayerbot.VectorMemoryMaxAvoidGrids", 12);
+    vectorMemoryQuestAvoidEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.VectorMemoryQuestAvoidEnabled", true);
 
     useGroundMountAtMinLevel = sConfigMgr->GetOption<int32>("AiPlayerbot.UseGroundMountAtMinLevel", 20);
     useFastGroundMountAtMinLevel = sConfigMgr->GetOption<int32>("AiPlayerbot.UseFastGroundMountAtMinLevel", 40);

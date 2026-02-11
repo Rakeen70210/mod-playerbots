@@ -1953,6 +1953,28 @@ Playerbots.Updates.EnableDatabases = 1
 # Command server port, 0 - disabled
 AiPlayerbot.CommandServerPort = 8888
 
+# Vector memory service toggle (per-bot route/quest memory)
+AiPlayerbot.VectorMemoryEnabled = 0
+
+# Vector memory service host and port (local/offline service recommended)
+AiPlayerbot.VectorMemoryHost = "127.0.0.1"
+AiPlayerbot.VectorMemoryPort = 7788
+
+# Service request timeout in milliseconds
+AiPlayerbot.VectorMemoryTimeoutMs = 200
+
+# Minimum delay between route-memory queries per bot (ms)
+AiPlayerbot.VectorMemoryRouteQueryCooldownMs = 60000
+
+# Minimum delay between quest-memory queries per bot (ms)
+AiPlayerbot.VectorMemoryQuestQueryCooldownMs = 600000
+
+# Maximum avoid-grids cached per bot/map from route-memory query
+AiPlayerbot.VectorMemoryMaxAvoidGrids = 12
+
+# Enable quest avoid list filtering from vector memory
+AiPlayerbot.VectorMemoryQuestAvoidEnabled = 1
+
 #
 #
 #

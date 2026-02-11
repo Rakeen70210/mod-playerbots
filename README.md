@@ -85,6 +85,20 @@ Before building, consider setting the database password. One way to do this is t
 
 Use `docker compose up -d --build` to build and run the server. For more information, including how to create an account and taking backups, refer to the [Install With Docker](https://www.azerothcore.org/wiki/install-with-docker) page.
 
+## Optional: Local Vector Memory (Routes and Questing)
+
+This module now includes optional hooks for per-bot vector memory signals used by route and quest behavior (disabled by default).
+
+- Enable in `conf/playerbots.conf`:
+  - `AiPlayerbot.VectorMemoryEnabled = 1`
+  - `AiPlayerbot.VectorMemoryHost = "127.0.0.1"`
+  - `AiPlayerbot.VectorMemoryPort = 7788`
+- Run a local memory service backed by Qdrant:
+  - Service source: `apps/vector_memory_service/`
+  - Setup and run instructions: `apps/vector_memory_service/README.md`
+
+If the service is offline or unreachable, bots continue with existing behavior and no blocking calls are made in AI hot loops.
+
 ## Documentation
 
 The [Playerbots Wiki](https://github.com/mod-playerbots/mod-playerbots/wiki) contains an extensive overview of AddOns, commands, raids with programmed bot strategies, and recommended performance configurations. Please note that documentation may be incomplete or out-of-date in some sections, and contributions are welcome.

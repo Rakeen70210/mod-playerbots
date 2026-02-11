@@ -9,6 +9,7 @@
 #include "LootObjectStack.h"
 #include "PathGenerator.h"
 #include "Playerbots.h"
+#include "VectorMemoryMgr.h"
 
 bool MoveToTravelTargetAction::Execute(Event event)
 {
@@ -75,26 +76,39 @@ bool MoveToTravelTargetAction::Execute(Event event)
 
     float maxDistance = target->getDestination()->getRadiusMin();
 
-    // Evenly distribute around the target.
-    float angle = 2 * M_PI * urand(0, 100) / 100.0;
-
-    if (target->getMaxTravelTime() > target->getTimeLeft())  // The bot is late. Speed it up.
-    {
-        // distance = sPlayerbotAIConfig.fleeDistance;
-        // angle = bot->GetAngle(location.GetPositionX(), location.GetPositionY());
-        // location = botLocation.getLocation();
-    }
-
     float x = location.GetPositionX();
     float y = location.GetPositionY();
     float z = location.GetPositionZ();
-    float mapId = location.GetMapId();
+    uint32 mapId = location.GetMapId();
 
-    // Move between 0.5 and 1.0 times the maxDistance.
-    float mod = frand(50.f, 100.f) / 100.0f;
+    bool selectedPoint = false;
+    uint32 botGuidLow = bot->GetGUID().GetCounter();
 
-    x += cos(angle) * maxDistance * mod;
-    y += sin(angle) * maxDistance * mod;
+    for (uint32 attempt = 0; attempt < 5; ++attempt)
+    {
+        float angle = 2 * M_PI * urand(0, 100) / 100.0f;
+        float mod = frand(50.f, 100.f) / 100.0f;
+
+        x = location.GetPositionX() + cos(angle) * maxDistance * mod;
+        y = location.GetPositionY() + sin(angle) * maxDistance * mod;
+
+        WorldPosition candidate(mapId, x, y, z);
+        GridCoord grid = candidate.getGridCoord();
+        if (sVectorMemoryMgr.IsGridAvoided(botGuidLow, mapId, static_cast<uint8>(grid.x_coord),
+                                           static_cast<uint8>(grid.y_coord)))
+            continue;
+
+        selectedPoint = true;
+        break;
+    }
+
+    if (!selectedPoint)
+    {
+        float angle = 2 * M_PI * urand(0, 100) / 100.0f;
+        float mod = frand(50.f, 100.f) / 100.0f;
+        x = location.GetPositionX() + cos(angle) * maxDistance * mod;
+        y = location.GetPositionY() + sin(angle) * maxDistance * mod;
+    }
 
     bool canMove = false;
 
