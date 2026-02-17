@@ -141,6 +141,14 @@ bool PlayerbotAIConfig::Initialize()
 
     randomBotMapsAsString = sConfigMgr->GetOption<std::string>("AiPlayerbot.RandomBotMaps", "0,1,530,571");
     LoadList<std::vector<uint32>>(randomBotMapsAsString, randomBotMaps);
+    randomBotAllowEnemyZones = sConfigMgr->GetOption<bool>("AiPlayerbot.RandomBotAllowEnemyZones", false);
+    zonePopulationEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.ZonePopulationEnabled", false);
+    zonePopulationTargetPerFaction = sConfigMgr->GetOption<int32>("AiPlayerbot.ZonePopulationTargetPerFaction", 20);
+    zonePopulationUpdateIntervalSec = sConfigMgr->GetOption<int32>("AiPlayerbot.ZonePopulationUpdateIntervalSec", 30);
+    zonePopulationMaxMovesPerTick = sConfigMgr->GetOption<int32>("AiPlayerbot.ZonePopulationMaxMovesPerTick", 50);
+    zonePopulationPvpFraction = sConfigMgr->GetOption<float>("AiPlayerbot.ZonePopulationPvpFraction", 0.25f);
+    LoadList<std::vector<uint32>>(sConfigMgr->GetOption<std::string>("AiPlayerbot.ZonePopulationZoneIds", ""),
+                                  zonePopulationZoneIds);
     probTeleToBankers = sConfigMgr->GetOption<float>("AiPlayerbot.ProbTeleToBankers", 0.25f);
     enableWeightTeleToCityBankers = sConfigMgr->GetOption<bool>("AiPlayerbot.EnableWeightTeleToCityBankers", false);
     weightTeleToStormwind = sConfigMgr->GetOption<int>("AiPlayerbot.TeleToStormwindWeight", 2);

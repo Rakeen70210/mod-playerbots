@@ -9,10 +9,12 @@
 
 #include <algorithm>
 #include <boost/thread/thread.hpp>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <random>
+#include <unordered_set>
 
 #include "AiFactory.h"
 #include "Battleground.h"
@@ -445,6 +447,13 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool /*minimal*/)
             // activatePrintStatsThread();
         }
     }
+
+    if (sPlayerbotAIConfig.zonePopulationEnabled &&
+        time(nullptr) > (ZonePopulationTimer + sPlayerbotAIConfig.zonePopulationUpdateIntervalSec))
+    {
+        UpdateZonePopulations();
+    }
+
     uint32 updateBots = sPlayerbotAIConfig.randomBotsPerInterval * onlineBotFocus / 100;
     uint32 maxNewBots =
         onlineBotCount < maxAllowedBotCount &&
@@ -1357,6 +1366,175 @@ void RandomPlayerbotMgr::CheckPlayers()
     LOG_INFO("playerbots", "Max player level is {}, max bot level set to {}", playersLevel - 3, playersLevel);
 }
 
+void RandomPlayerbotMgr::UpdateZonePopulations()
+{
+    ZonePopulationTimer = time(nullptr);
+
+    if (!sPlayerbotAIConfig.zonePopulationEnabled || !sPlayerbotAIConfig.zonePopulationTargetPerFaction)
+        return;
+
+    if (zonePopulationZones.empty())
+    {
+        if (zone2LevelBracket.empty())
+            PrepareZone2LevelBracket();
+        RebuildZonePopulationZones();
+    }
+
+    if (zonePopulationZones.empty())
+        return;
+
+    if (locsPerZoneCache.empty())
+        PrepareTeleportCache();
+
+    std::unordered_set<uint32> trackedZones(zonePopulationZones.begin(), zonePopulationZones.end());
+    std::map<uint32, std::vector<Player*>> allianceByZone;
+    std::map<uint32, std::vector<Player*>> hordeByZone;
+    std::vector<Player*> allianceFloating;
+    std::vector<Player*> hordeFloating;
+
+    for (auto const& botEntry : playerBots)
+    {
+        Player* bot = botEntry.second;
+        if (!bot || !IsRandomBot(bot))
+            continue;
+
+        if (!bot->IsInWorld() || bot->InBattleground() || bot->InArena() || bot->GetGroup())
+            continue;
+
+        bool isAlliance = bot->GetTeamId() == TEAM_ALLIANCE;
+        uint32 zoneId = bot->GetZoneId();
+        if (trackedZones.find(zoneId) != trackedZones.end())
+        {
+            if (isAlliance)
+                allianceByZone[zoneId].push_back(bot);
+            else
+                hordeByZone[zoneId].push_back(bot);
+        }
+        else
+        {
+            if (isAlliance)
+                allianceFloating.push_back(bot);
+            else
+                hordeFloating.push_back(bot);
+        }
+    }
+
+    std::vector<Player*> scheduledMoves;
+    scheduledMoves.reserve(sPlayerbotAIConfig.zonePopulationMaxMovesPerTick);
+    std::unordered_set<ObjectGuid::LowType> movedIds;
+
+    auto setZoneTarget = [this](Player* bot, uint32 zoneId)
+    {
+        if (!bot || !zoneId)
+            return;
+        ObjectGuid::LowType botId = bot->GetGUID().GetCounter();
+        if (GetEventValue(botId, "zone_target") != zoneId)
+            SetEventValue(botId, "zone_target", zoneId, sPlayerbotAIConfig.maxRandomBotInWorldTime);
+    };
+
+    for (auto const& [zoneId, bots] : allianceByZone)
+    {
+        for (Player* bot : bots)
+            setZoneTarget(bot, zoneId);
+    }
+    for (auto const& [zoneId, bots] : hordeByZone)
+    {
+        for (Player* bot : bots)
+            setZoneTarget(bot, zoneId);
+    }
+
+    auto assignForTeam = [&](std::map<uint32, std::vector<Player*>>& byZone, std::vector<Player*>& floating)
+    {
+        std::vector<Player*> donors;
+        for (uint32 zoneId : zonePopulationZones)
+        {
+            auto& bots = byZone[zoneId];
+            while (bots.size() > sPlayerbotAIConfig.zonePopulationTargetPerFaction)
+            {
+                donors.push_back(bots.back());
+                bots.pop_back();
+            }
+        }
+
+        donors.insert(donors.end(), floating.begin(), floating.end());
+        floating.clear();
+
+        for (uint32 zoneId : zonePopulationZones)
+        {
+            auto& bots = byZone[zoneId];
+            while (bots.size() < sPlayerbotAIConfig.zonePopulationTargetPerFaction && !donors.empty())
+            {
+                if (scheduledMoves.size() >= sPlayerbotAIConfig.zonePopulationMaxMovesPerTick)
+                    return;
+
+                Player* donor = donors.back();
+                donors.pop_back();
+                if (!donor)
+                    continue;
+
+                ObjectGuid::LowType botId = donor->GetGUID().GetCounter();
+                if (movedIds.find(botId) != movedIds.end())
+                    continue;
+
+                setZoneTarget(donor, zoneId);
+                byZone[zoneId].push_back(donor);
+                movedIds.insert(botId);
+                scheduledMoves.push_back(donor);
+            }
+        }
+    };
+
+    assignForTeam(allianceByZone, allianceFloating);
+    assignForTeam(hordeByZone, hordeFloating);
+
+    for (Player* bot : scheduledMoves)
+    {
+        if (!bot)
+            continue;
+
+        ObjectGuid::LowType botId = bot->GetGUID().GetCounter();
+        uint32 zoneTarget = GetEventValue(botId, "zone_target");
+        if (!zoneTarget)
+            continue;
+
+        Refresh(bot);
+        RandomTeleportToZone(bot, zoneTarget);
+    }
+
+    // Assign world-PvP participation per zone/team.
+    uint32 desiredPvpPerZone = static_cast<uint32>(std::ceil(static_cast<float>(sPlayerbotAIConfig.zonePopulationTargetPerFaction) *
+                                                             std::max(0.0f, std::min(1.0f, sPlayerbotAIConfig.zonePopulationPvpFraction))));
+
+    auto applyPvpForTeam = [&](std::map<uint32, std::vector<Player*>>& byZone)
+    {
+        for (auto& zoneEntry : byZone)
+        {
+            auto& bots = zoneEntry.second;
+            if (bots.empty())
+                continue;
+
+            std::sort(bots.begin(), bots.end(),
+                      [](Player* left, Player* right)
+                      {
+                          return left->GetGUID().GetCounter() < right->GetGUID().GetCounter();
+                      });
+
+            uint32 target = std::min<uint32>(desiredPvpPerZone, bots.size());
+            for (uint32 index = 0; index < bots.size(); ++index)
+            {
+                Player* bot = bots[index];
+                ObjectGuid::LowType botId = bot->GetGUID().GetCounter();
+                uint32 expected = index < target ? 1u : 0u;
+                if (GetEventValue(botId, "zone_pvp") != expected)
+                    SetEventValue(botId, "zone_pvp", expected, sPlayerbotAIConfig.maxRandomBotInWorldTime);
+            }
+        }
+    };
+
+    applyPvpForTeam(allianceByZone);
+    applyPvpForTeam(hordeByZone);
+}
+
 void RandomPlayerbotMgr::ScheduleRandomize(uint32 bot, uint32 time) { SetEventValue(bot, "randomize", 1, time); }
 
 void RandomPlayerbotMgr::ScheduleTeleport(uint32 bot, uint32 time)
@@ -1593,9 +1771,13 @@ bool RandomPlayerbotMgr::ProcessBot(Player* bot)
         uint32 teleport = GetEventValue(botId, "teleport");
         if (!teleport)
         {
-            LOG_DEBUG("playerbots", "Bot #{} <{}>: teleport for level and refresh", botId, bot->GetName());
+            uint32 zoneTarget = GetEventValue(botId, "zone_target");
+            LOG_DEBUG("playerbots", "Bot #{} <{}>: teleport and refresh", botId, bot->GetName());
             Refresh(bot);
-            RandomTeleportForLevel(bot);
+            if (sPlayerbotAIConfig.zonePopulationEnabled && zoneTarget)
+                RandomTeleportToZone(bot, zoneTarget);
+            else
+                RandomTeleportForLevel(bot);
             uint32 time = urand(sPlayerbotAIConfig.minRandomBotTeleportInterval,
                                 sPlayerbotAIConfig.maxRandomBotTeleportInterval);
             ScheduleTeleport(botId, time);
@@ -1702,12 +1884,16 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>&
         if (!area)
             continue;
 
-        // Do not teleport to enemy zones if level is low
-        if (zone->team == 4 && bot->GetTeamId() == TEAM_ALLIANCE)
-            continue;
+        // Optional strict zone balancing needs cross-faction teleporting.
+        if (!sPlayerbotAIConfig.randomBotAllowEnemyZones)
+        {
+            // Do not teleport to enemy zones if level is low
+            if (zone->team == 4 && bot->GetTeamId() == TEAM_ALLIANCE)
+                continue;
 
-        if (zone->team == 2 && bot->GetTeamId() == TEAM_HORDE)
-            continue;
+            if (zone->team == 2 && bot->GetTeamId() == TEAM_HORDE)
+                continue;
+        }
 
         if (map->IsInWater(bot->GetPhaseMask(), x, y, z, bot->GetCollisionHeight()))
             continue;
@@ -1842,13 +2028,46 @@ void RandomPlayerbotMgr::PrepareZone2LevelBracket()
     {
         zone2LevelBracket[zoneId] = {bracketPair.first, bracketPair.second};
     }
+
+    RebuildZonePopulationZones();
+}
+
+void RandomPlayerbotMgr::RebuildZonePopulationZones()
+{
+    zonePopulationZones.clear();
+
+    if (!sPlayerbotAIConfig.zonePopulationZoneIds.empty())
+    {
+        for (uint32 zoneId : sPlayerbotAIConfig.zonePopulationZoneIds)
+        {
+            if (zone2LevelBracket.find(zoneId) != zone2LevelBracket.end())
+                zonePopulationZones.push_back(zoneId);
+        }
+    }
+    else
+    {
+        for (auto const& zonePair : zone2LevelBracket)
+            zonePopulationZones.push_back(zonePair.first);
+    }
+
+    std::sort(zonePopulationZones.begin(), zonePopulationZones.end());
+    zonePopulationZones.erase(std::unique(zonePopulationZones.begin(), zonePopulationZones.end()),
+                              zonePopulationZones.end());
 }
 
 void RandomPlayerbotMgr::PrepareTeleportCache()
 {
     uint32 maxLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
+    locsPerZoneCache.clear();
+
+    if (sPlayerbotAIConfig.zonePopulationEnabled)
+    {
+        PrepareZone2LevelBracket();
+    }
 
     LOG_INFO("playerbots", "Preparing random teleport caches for {} levels...", maxLevel);
+
+    std::unordered_set<uint32> trackedZones(zonePopulationZones.begin(), zonePopulationZones.end());
 
     QueryResult results = WorldDatabase.Query(
         "SELECT "
@@ -1905,6 +2124,17 @@ void RandomPlayerbotMgr::PrepareTeleportCache()
             uint32 level = (min_level + max_level + 1) / 2;
             WorldLocation loc(mapId, x, y, z, 0);
             collected_locs++;
+
+            if (sPlayerbotAIConfig.zonePopulationEnabled && !trackedZones.empty())
+            {
+                if (Map* map = sMapMgr->FindMap(loc.GetMapId(), 0))
+                {
+                    uint32 zoneId = map->GetZoneId(PHASEMASK_NORMAL, x, y, z);
+                    if (trackedZones.find(zoneId) != trackedZones.end())
+                        locsPerZoneCache[zoneId].push_back(loc);
+                }
+            }
+
             for (int32 l = (int32)level - (int32)sPlayerbotAIConfig.randomBotTeleLowerLevel;
                  l <= (int32)level + (int32)sPlayerbotAIConfig.randomBotTeleHigherLevel; l++)
             {
@@ -2138,6 +2368,21 @@ void RandomPlayerbotMgr::Init()
         sRandomPlayerbotMgr.LoadBattleMastersCache();
 
     PlayerbotsDatabase.Execute("DELETE FROM playerbots_random_bots WHERE event = 'add'");
+}
+
+void RandomPlayerbotMgr::RandomTeleportToZone(Player* bot, uint32 zoneId)
+{
+    if (!bot || bot->InBattleground() || bot->InArena())
+        return;
+
+    auto itr = locsPerZoneCache.find(zoneId);
+    if (itr == locsPerZoneCache.end() || itr->second.empty())
+    {
+        RandomTeleportForLevel(bot);
+        return;
+    }
+
+    RandomTeleport(bot, itr->second);
 }
 
 void RandomPlayerbotMgr::RandomTeleportForLevel(Player* bot)
@@ -2588,6 +2833,14 @@ bool RandomPlayerbotMgr::IsRandomBot(ObjectGuid::LowType bot)
         return true;
 
     return false;
+}
+
+bool RandomPlayerbotMgr::IsZonePvpBot(Player* bot)
+{
+    if (!bot)
+        return false;
+
+    return GetEventValue(bot->GetGUID().GetCounter(), "zone_pvp") > 0;
 }
 
 bool RandomPlayerbotMgr::IsAddclassBot(Player* bot)

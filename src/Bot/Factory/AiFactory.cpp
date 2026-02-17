@@ -449,7 +449,11 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         }
     }
     if (sRandomPlayerbotMgr.IsRandomBot(player))
+    {
         engine->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies);
+        if (!player->InBattleground() && !player->InArena() && sRandomPlayerbotMgr.IsZonePvpBot(player))
+            engine->addStrategy("pvp", false);
+    }
     else
         engine->ChangeStrategy(sPlayerbotAIConfig.combatStrategies);
 

@@ -90,6 +90,10 @@ AiPlayerbot.RandomBotAutologin = 1
 # Randombot count
 AiPlayerbot.MinRandomBots = 500
 AiPlayerbot.MaxRandomBots = 500
+# If using strict ZonePopulation (20 Alliance + 20 Horde per zone), increase this substantially.
+# Example with default 59 ZoneBracket zones:
+#   baseline = 59 * 40 = 2360 bots
+#   with ~10% buffer for BG/deaths/teleports = ~2600
 
 # Randombot accounts
 # If you are not using any expansion at all, you may have to set this manually, in which case please
@@ -1100,6 +1104,36 @@ AiPlayerbot.ZoneBracket.4197 = 79,80
 # Map IDs where bots can be teleported to
 # Defaults: 0 = Eastern Kingdoms, 1 = Kalimdor, 530 = Outland, 571 = Northrend
 AiPlayerbot.RandomBotMaps = 0,1,530,571
+
+# Allow teleporting to enemy-owned zones (required for strict cross-faction per-zone balancing)
+# Default: 0 (disabled)
+AiPlayerbot.RandomBotAllowEnemyZones = 0
+
+# Enable strict per-zone population controller for random bots
+# Uses AiPlayerbot.ZoneBracket.* zone IDs by default, unless ZonePopulationZoneIds is set.
+# Default: 0 (disabled)
+AiPlayerbot.ZonePopulationEnabled = 0
+
+# Per-zone per-faction target when ZonePopulationEnabled = 1
+# Default: 20 (20 Alliance + 20 Horde in each selected zone)
+AiPlayerbot.ZonePopulationTargetPerFaction = 20
+
+# How often (seconds) zone populations are rebalanced
+# Default: 30
+AiPlayerbot.ZonePopulationUpdateIntervalSec = 30
+
+# Max number of bots reassigned per rebalance tick
+# Default: 50
+AiPlayerbot.ZonePopulationMaxMovesPerTick = 50
+
+# Fraction [0..1] of assigned zone bots that should run world PvP strategy
+# Default: 0.25
+AiPlayerbot.ZonePopulationPvpFraction = 0.25
+
+# Optional explicit zone list for zone population controller.
+# Empty means use all zone IDs from AiPlayerbot.ZoneBracket.*
+# Example: AiPlayerbot.ZonePopulationZoneIds = 12,14,17,40
+AiPlayerbot.ZonePopulationZoneIds = ""
 
 # Probabilty bots teleport to banker (city)
 # Default: 0.25

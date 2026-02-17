@@ -103,6 +103,7 @@ public:
     static bool HandlePlayerbotConsoleCommand(ChatHandler* handler, char const* args);
     bool IsRandomBot(Player* bot);
     bool IsRandomBot(ObjectGuid::LowType bot);
+    bool IsZonePvpBot(Player* bot);
     bool IsAddclassBot(Player* bot);
     bool IsAddclassBot(ObjectGuid::LowType bot);
     void Randomize(Player* bot);
@@ -166,9 +167,11 @@ public:
     void PrepareAddclassCache();
     void PrepareZone2LevelBracket();
     void PrepareTeleportCache();
+    void RebuildZonePopulationZones();
     void Init();
     std::map<uint8, std::unordered_set<ObjectGuid>> addclassCache;
     std::map<uint8, std::vector<WorldLocation>> locsPerLevelCache;
+    std::unordered_map<uint32, std::vector<WorldLocation>> locsPerZoneCache;
     std::map<uint8, std::vector<WorldLocation>> allianceStarterPerLevelCache;
     std::map<uint8, std::vector<WorldLocation>> hordeStarterPerLevelCache;
 
@@ -219,6 +222,7 @@ private:
         this->BgCheckTimer = 0;
         this->LfgCheckTimer = 0;
         this->PlayersCheckTimer = 0;
+        this->ZonePopulationTimer = 0;
     }
 
     ~RandomPlayerbotMgr() = default;
@@ -245,12 +249,15 @@ private:
     time_t BgCheckTimer;
     time_t LfgCheckTimer;
     time_t PlayersCheckTimer;
+    time_t ZonePopulationTimer;
     time_t RealPlayerLastTimeSeen = 0;
     time_t DelayLoginBotsTimer;
     time_t printStatsTimer;
     uint32 AddRandomBots();
     bool ProcessBot(uint32 bot);
     void ScheduleRandomize(uint32 bot, uint32 time);
+    void UpdateZonePopulations();
+    void RandomTeleportToZone(Player* bot, uint32 zoneId);
     void RandomTeleport(Player* bot);
     void RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth = false);
     uint32 GetZoneLevel(uint16 mapId, float teleX, float teleY, float teleZ);
@@ -263,6 +270,7 @@ private:
     std::map<TeamId, std::map<BattlegroundTypeId, std::vector<uint32>>> BattleMastersCache;
     std::unordered_map<uint32, BotEventCache> eventCache;
     std::list<uint32> currentBots;
+    std::vector<uint32> zonePopulationZones;
     uint32 bgBotsCount;
     uint32 playersLevel;
 

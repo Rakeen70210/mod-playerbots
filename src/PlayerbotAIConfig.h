@@ -102,6 +102,13 @@ public:
 
     uint32 openGoSpell;
     bool randomBotAutologin;
+    bool randomBotAllowEnemyZones;
+    bool zonePopulationEnabled;
+    uint32 zonePopulationTargetPerFaction;
+    uint32 zonePopulationUpdateIntervalSec;
+    uint32 zonePopulationMaxMovesPerTick;
+    float zonePopulationPvpFraction;
+    std::vector<uint32> zonePopulationZoneIds;
     bool botAutologin;
     std::string randomBotMapsAsString;
     float probTeleToBankers;
